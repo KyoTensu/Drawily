@@ -56,5 +56,7 @@ docker-compose.yml
 
 ## Conventions
 
+- Git workflow is in [CONTRIBUTING.md](CONTRIBUTING.md): branch off `dev`, open PRs into `dev`, never push to
+  `dev` or `main` directly. Only a release PR (`dev` → `main`) touches `main`.
 - Keep it small: no feature, option or dependency nobody asked for.
 - Never commit secrets or `.env`; `.env.example` documents variables.
