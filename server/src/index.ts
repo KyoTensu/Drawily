@@ -9,7 +9,7 @@ if (!token) {
 }
 const port = Number(process.env.PORT ?? 3000)
 
-openDb(process.env.DATA_DIR ?? '/data')
-const app = createApp(token)
+const dataDir = process.env.DATA_DIR ?? '/data'
+const app = createApp(token, openDb(dataDir), dataDir)
 
 serve({ fetch: app.fetch, port }, (info) => console.log(`Drawily listening on :${info.port}`))

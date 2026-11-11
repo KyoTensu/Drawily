@@ -13,5 +13,6 @@ cp .env.example .env   # set APP_TOKEN
 docker compose up -d
 ```
 
-Then add an iOS Shortcut that uploads the shared file to `https://<your-host>/api/upload` with the header
+Then add an iOS Shortcut that uploads the shared file as the form field `file` (multipart) to
+`https://<your-host>/api/upload` with the header
 `Authorization: Bearer <APP_TOKEN>`.
