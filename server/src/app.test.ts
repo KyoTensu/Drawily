@@ -95,3 +95,19 @@ test('drawings borrow the preview of a format that has one', async () => {
   assert.equal(res.status, 200)
   assert.equal(res.headers.get('content-type'), 'image/webp')
 })
+
+test('lists drawings with their files and downloads originals', async () => {
+  const get = (path: string) => app.request(path, { headers: { authorization: 'Bearer secret' } })
+  const { drawingId, fileId } = await (await upload('Fox été.png', 'fox bytes')).json()
+
+  const list = await (await get('/api/drawings')).json()
+  const fox = list.find((d: { id: number }) => d.id === drawingId)
+  assert.deepEqual(fox.files, [{ id: fileId, format: 'png', filename: 'Fox été.png', size: 9 }])
+  assert.match(fox.drawnOn, /^\d{4}-\d{2}-\d{2}$/)
+
+  const file = await get(`/api/files/${fileId}`)
+  assert.equal(await file.text(), 'fox bytes')
+  assert.equal(file.headers.get('content-disposition'), "attachment; filename*=UTF-8''Fox%20%C3%A9t%C3%A9.png")
+  assert.equal((await get('/api/files/99999')).status, 404)
+  assert.equal((await get('/api/nope')).headers.get('content-type'), 'application/json')
+})
