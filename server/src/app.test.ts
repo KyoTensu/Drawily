@@ -1,9 +1,20 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createApp } from './app.ts'
 import { openDb } from './db.ts'
 
-const app = createApp('secret')
+const dataDir = mkdtempSync(join(tmpdir(), 'drawily-'))
+const db = openDb(':memory:')
+const app = createApp('secret', db, dataDir)
+
+const upload = (name: string, content: string, token = 'secret') => {
+  const body = new FormData()
+  body.append('file', new File([content], name))
+  return app.request('/api/upload', { method: 'POST', body, headers: { authorization: `Bearer ${token}` } })
+}
 
 test('API needs the token', async () => {
   assert.equal((await app.request('/api/health')).status, 401)
@@ -41,4 +52,32 @@ test('database rejects duplicate sha256', () => {
   const addFile = db.prepare("INSERT INTO file (drawing_id, format, filename, size, sha256) VALUES (?, 'png', 'cat.png', 1, 'abc')")
   addFile.run(lastInsertRowid)
   assert.throws(() => addFile.run(lastInsertRowid), /UNIQUE/)
+})
+
+test('upload groups formats of the same drawing and stores the original', async () => {
+  const png = await upload('Cat.png', 'png bytes')
+  assert.equal(png.status, 201)
+  const { drawingId, fileId } = await png.json()
+  assert.equal(readFileSync(join(dataDir, 'files', String(drawingId), `${fileId}.png`), 'utf8'), 'png bytes')
+
+  const procreate = await (await upload('Cat.procreate', 'procreate bytes')).json()
+  assert.equal(procreate.drawingId, drawingId)
+  const dog = await (await upload('Dog.png', 'dog bytes')).json()
+  assert.notEqual(dog.drawingId, drawingId)
+
+  // The same name on another day is a new drawing.
+  db.prepare("UPDATE drawing SET drawn_on = '2000-01-01' WHERE id = ?").run(drawingId)
+  const tomorrow = await (await upload('Cat.psd', 'psd bytes')).json()
+  assert.notEqual(tomorrow.drawingId, drawingId)
+  assert.equal(db.prepare('SELECT title FROM drawing WHERE id = ?').get(tomorrow.drawingId)!.title, 'Cat')
+})
+
+test('upload rejects duplicates, unknown formats and missing auth', async () => {
+  assert.equal((await upload('A.png', 'same')).status, 201)
+  const dup = await upload('B.png', 'same')
+  assert.equal(dup.status, 409)
+  assert.equal((await upload('notes.txt', 'x')).status, 415)
+  assert.equal((await upload('noext', 'x')).status, 415)
+  assert.equal((await upload('C.png', 'x', 'nope')).status, 401)
+  assert.equal((await app.request('/api/upload', { method: 'POST', headers: { authorization: 'Bearer secret' } })).status, 400)
 })
