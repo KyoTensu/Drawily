@@ -1,9 +1,9 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
-import type { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync, SQLOutputValue } from 'node:sqlite'
 import { Hono } from 'hono'
 import { getCookie, setCookie } from 'hono/cookie'
 import { serveStatic } from '@hono/node-server/serve-static'
@@ -39,6 +39,35 @@ export function createApp(token: string, db: DatabaseSync, dataDir: string) {
   const isValid = (s: string | undefined) => s !== undefined && timingSafeEqual(digest(s), expected)
 
   const app = new Hono()
+
+  const filePath = (drawingId: SQLOutputValue, fileId: SQLOutputValue, format: SQLOutputValue) =>
+    join(dataDir, 'files', String(drawingId), `${fileId}.${format}`)
+
+  // Moves files on disk into another drawing's folder, then updates the DB; undoes the moves if anything fails.
+  // shortcut: two merges/splits of the same drawings at the same moment could interleave; fine for one user.
+  async function moveFiles(files: Record<string, SQLOutputValue>[], to: number, updateDb: () => void) {
+    const moved: typeof files = []
+    try {
+      await mkdir(join(dataDir, 'files', String(to)), { recursive: true })
+      for (const f of files) {
+        await rename(filePath(f.drawing_id, f.id, f.format), filePath(to, f.id, f.format))
+        moved.push(f)
+      }
+      db.exec('BEGIN')
+      try {
+        updateDb()
+        db.exec('COMMIT')
+      } catch (err) {
+        db.exec('ROLLBACK')
+        throw err
+      }
+    } catch (err) {
+      for (const f of moved) await rename(filePath(to, f.id, f.format), filePath(f.drawing_id, f.id, f.format)).catch(() => {})
+      throw err
+    }
+    // Drop folders left empty; rmdir refuses non-empty ones.
+    for (const d of new Set(files.map((f) => f.drawing_id))) await rmdir(join(dataDir, 'files', String(d))).catch(() => {})
+  }
 
   app.get('/api/login', (c) => c.html(loginPage()))
 
@@ -156,6 +185,39 @@ export function createApp(token: string, db: DatabaseSync, dataDir: string) {
       'content-length': String(f.size),
       'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(f.filename as string)}`,
     })
+  })
+
+  app.post('/api/drawings/:id/merge', async (c) => {
+    const id = Number(c.req.param('id'))
+    const { from } = await c.req.json().catch(() => ({}))
+    if (!Number.isInteger(from) || from === id) return c.json({ error: 'expected "from": the id of another drawing' }, 400)
+    if (!db.prepare('SELECT 1 FROM drawing WHERE id = ?').get(id)) return c.json({ error: 'drawing not found' }, 404)
+    const files = db.prepare('SELECT id, drawing_id, format FROM file WHERE drawing_id = ?').all(from)
+    if (!files.length) return c.json({ error: 'drawing not found' }, 404)
+    await moveFiles(files, id, () => {
+      db.prepare('UPDATE file SET drawing_id = ? WHERE drawing_id = ?').run(id, from)
+      db.prepare('DELETE FROM drawing WHERE id = ?').run(from)
+    })
+    return c.json({ drawingId: id })
+  })
+
+  app.post('/api/files/:id/split', async (c) => {
+    const f = db
+      .prepare('SELECT f.id, f.drawing_id, f.format, f.filename, d.drawn_on FROM file f JOIN drawing d ON d.id = f.drawing_id WHERE f.id = ?')
+      .get(c.req.param('id'))
+    if (!f) return c.json({ error: 'file not found' }, 404)
+    const siblings = db.prepare('SELECT count(*) AS n FROM file WHERE drawing_id = ?').get(f.drawing_id)!
+    if (Number(siblings.n) < 2) return c.json({ error: 'this is the only file of its drawing' }, 400)
+
+    const title = splitName(f.filename as string).stem
+    const drawingId = Number(db.prepare('INSERT INTO drawing (title, drawn_on) VALUES (?, ?)').run(title, f.drawn_on).lastInsertRowid)
+    try {
+      await moveFiles([f], drawingId, () => db.prepare('UPDATE file SET drawing_id = ? WHERE id = ?').run(drawingId, f.id))
+    } catch (err) {
+      db.prepare('DELETE FROM drawing WHERE id = ?').run(drawingId)
+      throw err
+    }
+    return c.json({ drawingId }, 201)
   })
 
   app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))

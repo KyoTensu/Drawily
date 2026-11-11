@@ -1,13 +1,19 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { getDrawings, type Drawing } from './api'
+import { provide, ref } from 'vue'
+import { getDrawings, reloadKey, type Drawing } from './api'
 
 const drawings = ref<Drawing[]>()
 const error = ref('')
 
-getDrawings()
-  .then((d) => (drawings.value = d))
-  .catch((e) => (error.value = e instanceof TypeError ? 'Server unreachable.' : String(e.message)))
+async function load() {
+  try {
+    drawings.value = await getDrawings()
+  } catch (e) {
+    error.value = e instanceof TypeError ? 'Server unreachable.' : String((e as Error).message)
+  }
+}
+load()
+provide(reloadKey, load)
 </script>
 
 <template>

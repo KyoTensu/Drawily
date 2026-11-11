@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from './app.ts'
@@ -110,4 +110,46 @@ test('lists drawings with their files and downloads originals', async () => {
   assert.equal(file.headers.get('content-disposition'), "attachment; filename*=UTF-8''Fox%20%C3%A9t%C3%A9.png")
   assert.equal((await get('/api/files/99999')).status, 404)
   assert.equal((await get('/api/nope')).headers.get('content-type'), 'application/json')
+})
+
+test('merge moves files into a drawing and split moves one back out', async () => {
+  const post = (path: string, body?: object) =>
+    app.request(path, { method: 'POST', body: JSON.stringify(body), headers: { authorization: 'Bearer secret', 'content-type': 'application/json' } })
+  const filesOf = (id: number) => db.prepare('SELECT id FROM file WHERE drawing_id = ? ORDER BY id').all(id).map((f) => f.id)
+
+  const a = await (await upload('Owl.png', 'owl png')).json()
+  const b = await (await upload('Owl sketch.psd', 'owl psd')).json()
+  assert.notEqual(a.drawingId, b.drawingId)
+
+  assert.equal((await post(`/api/drawings/${a.drawingId}/merge`, { from: a.drawingId })).status, 400)
+  assert.equal((await post(`/api/drawings/${a.drawingId}/merge`, { from: 99999 })).status, 404)
+  assert.equal((await post(`/api/drawings/${a.drawingId}/merge`, { from: b.drawingId })).status, 200)
+  assert.deepEqual(filesOf(a.drawingId), [a.fileId, b.fileId])
+  assert.equal(db.prepare('SELECT 1 FROM drawing WHERE id = ?').get(b.drawingId), undefined)
+  assert.equal(readFileSync(join(dataDir, 'files', String(a.drawingId), `${b.fileId}.psd`), 'utf8'), 'owl psd')
+  assert.equal(existsSync(join(dataDir, 'files', String(b.drawingId))), false)
+
+  const split = await post(`/api/files/${b.fileId}/split`)
+  assert.equal(split.status, 201)
+  const { drawingId } = await split.json()
+  assert.deepEqual(filesOf(drawingId), [b.fileId])
+  assert.equal(db.prepare('SELECT title FROM drawing WHERE id = ?').get(drawingId)!.title, 'Owl sketch')
+  assert.equal(readFileSync(join(dataDir, 'files', String(drawingId), `${b.fileId}.psd`), 'utf8'), 'owl psd')
+  assert.equal((await post(`/api/files/${b.fileId}/split`)).status, 400)
+})
+
+test('a merge that fails halfway puts everything back', async () => {
+  const into = await (await upload('Moth.png', 'moth png')).json()
+  const first = await (await upload('Moth b.png', 'moth b png')).json()
+  const second = await (await upload('Moth b.psd', 'moth b psd')).json()
+  rmSync(join(dataDir, 'files', String(second.drawingId), `${second.fileId}.psd`)) // makes the second move fail
+
+  const res = await app.request(`/api/drawings/${into.drawingId}/merge`, {
+    method: 'POST',
+    body: JSON.stringify({ from: first.drawingId }),
+    headers: { authorization: 'Bearer secret', 'content-type': 'application/json' },
+  })
+  assert.equal(res.status, 500)
+  assert.equal(db.prepare('SELECT drawing_id FROM file WHERE id = ?').get(first.fileId)!.drawing_id, first.drawingId)
+  assert.equal(readFileSync(join(dataDir, 'files', String(first.drawingId), `${first.fileId}.png`), 'utf8'), 'moth b png')
 })
