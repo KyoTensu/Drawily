@@ -1,10 +1,11 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { getCookie, setCookie } from 'hono/cookie'
 import { serveStatic } from '@hono/node-server/serve-static'
+import { makeThumb, PREVIEW_FORMATS } from './thumbs.ts'
 
 const webDist = new URL('../../web/dist/', import.meta.url).pathname
 const COOKIE = 'drawily_token'
@@ -71,7 +72,7 @@ export function createApp(token: string, db: DatabaseSync, dataDir: string) {
     const { stem, format } = splitName(filename)
     if (!FORMATS.has(format)) return c.json({ error: `unsupported format: ${format || 'none'}` }, 415)
 
-    const bytes = new Uint8Array(await file.arrayBuffer())
+    const bytes = Buffer.from(await file.arrayBuffer())
     const sha256 = createHash('sha256').update(bytes).digest('hex')
     const dup = db.prepare('SELECT drawing_id FROM file WHERE sha256 = ?').get(sha256)
     if (dup) return c.json({ error: 'duplicate', drawingId: dup.drawing_id }, 409)
@@ -105,7 +106,31 @@ export function createApp(token: string, db: DatabaseSync, dataDir: string) {
       if (!match) db.prepare('DELETE FROM drawing WHERE id = ?').run(drawingId)
       throw err
     }
+
+    // The original is safe now; a broken preview only means the drawing shows without one.
+    try {
+      const thumb = await makeThumb(bytes, format)
+      if (thumb) {
+        await mkdir(join(dataDir, 'thumbs'), { recursive: true })
+        await writeFile(join(dataDir, 'thumbs', `${fileId}.webp`), thumb)
+      }
+    } catch (err) {
+      console.error(`No preview for file ${fileId} (${filename}):`, err)
+    }
     return c.json({ drawingId, fileId }, 201)
+  })
+
+  app.get('/api/drawings/:id/preview', async (c) => {
+    const files = db
+      .prepare('SELECT id, format FROM file WHERE drawing_id = ?')
+      .all(c.req.param('id'))
+      .filter((f) => PREVIEW_FORMATS.includes(f.format as string))
+      .sort((a, b) => PREVIEW_FORMATS.indexOf(a.format as string) - PREVIEW_FORMATS.indexOf(b.format as string))
+    for (const f of files) {
+      const thumb = await readFile(join(dataDir, 'thumbs', `${f.id}.webp`)).catch(() => null)
+      if (thumb) return c.body(thumb, 200, { 'content-type': 'image/webp' })
+    }
+    return c.json({ error: 'no preview' }, 404)
   })
 
   app.use('/*', serveStatic({ root: webDist }))

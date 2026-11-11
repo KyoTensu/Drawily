@@ -10,9 +10,9 @@ const dataDir = mkdtempSync(join(tmpdir(), 'drawily-'))
 const db = openDb(':memory:')
 const app = createApp('secret', db, dataDir)
 
-const upload = (name: string, content: string, token = 'secret') => {
+const upload = (name: string, content: string | Buffer, token = 'secret') => {
   const body = new FormData()
-  body.append('file', new File([content], name))
+  body.append('file', new File([content as BlobPart], name))
   return app.request('/api/upload', { method: 'POST', body, headers: { authorization: `Bearer ${token}` } })
 }
 
@@ -80,4 +80,18 @@ test('upload rejects duplicates, unknown formats and missing auth', async () => 
   assert.equal((await upload('noext', 'x')).status, 415)
   assert.equal((await upload('C.png', 'x', 'nope')).status, 401)
   assert.equal((await app.request('/api/upload', { method: 'POST', headers: { authorization: 'Bearer secret' } })).status, 400)
+})
+
+test('drawings borrow the preview of a format that has one', async () => {
+  const preview = (id: number) => app.request(`/api/drawings/${id}/preview`, { headers: { authorization: 'Bearer secret' } })
+  const procreate = readFileSync(new URL('./fixtures/sample.procreate', import.meta.url))
+
+  const psdOnly = await (await upload('Bird.psd', 'bird psd bytes')).json()
+  assert.equal((await preview(psdOnly.drawingId)).status, 404)
+
+  // Same stem, same day: the .procreate joins the .psd drawing and gives it a preview.
+  await upload('Bird.procreate', procreate)
+  const res = await preview(psdOnly.drawingId)
+  assert.equal(res.status, 200)
+  assert.equal(res.headers.get('content-type'), 'image/webp')
 })
