@@ -8,11 +8,12 @@ const noPreview = ref(false)
 
 <template>
   <article class="card">
-    <div class="preview">
+    <!-- The title link below is the accessible one; this one only makes the preview clickable. -->
+    <RouterLink :to="`/drawings/${drawing.id}`" class="preview" tabindex="-1" aria-hidden="true">
       <span v-if="noPreview">No preview</span>
-      <img v-else :src="`/api/drawings/${drawing.id}/preview`" :alt="drawing.title" loading="lazy" @error="noPreview = true" />
-    </div>
-    <h2>{{ drawing.title }}</h2>
+      <img v-else :src="`/api/drawings/${drawing.id}/preview`" alt="" loading="lazy" @error="noPreview = true" />
+    </RouterLink>
+    <h2><RouterLink :to="`/drawings/${drawing.id}`">{{ drawing.title }}</RouterLink></h2>
     <p v-if="showDate" class="date">{{ formatDay(drawing.drawnOn) }}</p>
     <ul class="files">
       <li v-for="f in drawing.files" :key="f.id">
@@ -35,6 +36,11 @@ const noPreview = ref(false)
   place-items: center;
   background: var(--line);
   color: var(--muted);
+}
+.preview,
+h2 a {
+  color: inherit;
+  text-decoration: none;
 }
 .preview img {
   position: absolute;
