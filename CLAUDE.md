@@ -31,7 +31,8 @@ docker-compose.yml
 
 ## Commands
 
-- `npm run dev:server` + `npm run dev:web` (two terminals) — Vite on :5173 proxies `/api` to :3000
+- `npm run dev:server` + `npm run dev:web` (two terminals) — Vite on :5173 proxies `/api` to :3000.
+  The server needs env vars, e.g. `APP_TOKEN=dev DATA_DIR=./data npm run dev:server`.
 - `npm run typecheck`, `npm test`, `npm run build`, `npm start` (serves the built app on :3000)
 - The server runs its `.ts` files directly with Node's type stripping: no build step, so use only
   erasable TS syntax (no enums/namespaces) and import local files with the `.ts` extension.
