@@ -1,6 +1,8 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import type { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { getCookie, setCookie } from 'hono/cookie'
@@ -133,7 +135,34 @@ export function createApp(token: string, db: DatabaseSync, dataDir: string) {
     return c.json({ error: 'no preview' }, 404)
   })
 
+  app.get('/api/drawings', (c) => {
+    const rows = db
+      .prepare(
+        `SELECT d.id, d.title, d.drawn_on AS drawnOn,
+           json_group_array(json_object('id', f.id, 'format', f.format, 'filename', f.filename, 'size', f.size)) AS files
+         FROM drawing d JOIN file f ON f.drawing_id = d.id
+         GROUP BY d.id ORDER BY d.drawn_on DESC, d.id DESC`,
+      )
+      .all()
+    return c.json(rows.map((r) => ({ ...r, files: JSON.parse(r.files as string) })))
+  })
+
+  app.get('/api/files/:id', (c) => {
+    const f = db.prepare('SELECT drawing_id, format, filename, size FROM file WHERE id = ?').get(c.req.param('id'))
+    if (!f) return c.json({ error: 'not found' }, 404)
+    const stream = createReadStream(join(dataDir, 'files', String(f.drawing_id), `${c.req.param('id')}.${f.format}`))
+    return c.body(Readable.toWeb(stream) as ReadableStream, 200, {
+      'content-type': 'application/octet-stream',
+      'content-length': String(f.size),
+      'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(f.filename as string)}`,
+    })
+  })
+
+  app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))
+
   app.use('/*', serveStatic({ root: webDist }))
+  // Client-side routes like /timeline load the app, which picks the view.
+  app.get('*', serveStatic({ path: join(webDist, 'index.html') }))
 
   return app
 }

@@ -3,7 +3,7 @@
 Self-hosted tracker for daily Procreate drawings. Send a drawing from the iPad share sheet, see it in a
 grid or timeline, and keep every export format of the same drawing together.
 
-**Status:** early setup — project skeleton only, no drawing features yet. See [CLAUDE.md](CLAUDE.md) for the stack and design decisions,
+**Status:** early — upload, previews, grid and timeline views work; merge/split of drawings is next. See [CLAUDE.md](CLAUDE.md) for the stack and design decisions,
 and [CONTRIBUTING.md](CONTRIBUTING.md) for the branch and release workflow.
 
 ## Planned usage
