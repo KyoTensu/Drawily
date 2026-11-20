@@ -26,6 +26,7 @@ Self-hosted web service to track daily drawings made in Procreate on an iPad Pro
 web/       Vue app (built to web/dist, served by the server)
 server/    Hono API + static file serving; app.ts = routes, index.ts = listen
 Dockerfile
+entrypoint.sh   container start: fixes /data ownership (PUID/PGID), drops root
 docker-compose.yml
 ```
 
@@ -62,6 +63,8 @@ docker-compose.yml
 - `DATA_DIR` — default `/data`
 - `PORT` — default `3000`
 - `TZ` — timezone used to decide "same day"
+- `PUID` / `PGID` — Docker only, default `1000`: `entrypoint.sh` gives the data folder to this user and group,
+  then runs the server as them (same convention as linuxserver.io images)
 
 ## Conventions
 

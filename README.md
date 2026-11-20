@@ -9,7 +9,7 @@ and [CONTRIBUTING.md](CONTRIBUTING.md) for the branch and release workflow.
 ## Planned usage
 
 ```bash
-cp .env.example .env   # set APP_TOKEN
+cp .env.example .env   # set APP_TOKEN, and PUID/PGID to the owner you want for the data
 docker compose up -d
 ```
 
