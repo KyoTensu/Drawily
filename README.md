@@ -53,7 +53,7 @@ Which will build the image directly, or use the prebuilt image pulled from GitHu
 ```yml
 services:
   drawily:
-    image: ghcr.io/KyoTensu/Drawily:latest
+    image: ghcr.io/kyotensu/drawily:latest
     env_file: .env
     ports:
       - "3000:3000"
