@@ -25,10 +25,14 @@ Merge the PR with **squash**, so each change is one commit on `dev`. The branch 
 
 ## Making a release
 
-1. Open a PR from `dev` to `main`: `gh pr create --base main --head dev --title "Release vX.Y.Z"`.
+1. Open a PR from `dev` to `main` titled exactly `Release vX.Y.Z`:
+   `gh pr create --base main --head dev --title "Release vX.Y.Z"`.
 2. Merge it with a **merge commit**. Squash is disabled on `main`, because a squash would make `main` and
    `dev` drift apart.
-3. Tag the merge commit and publish the release:
-   `gh release create vX.Y.Z --target main --generate-notes`.
+3. The `Publish` workflow then pushes the `latest` and `X.Y.Z` Docker images to
+   `ghcr.io/kyotensu/drawily`, tags the merge commit `vX.Y.Z` and creates the GitHub release with
+   generated notes. A PR into `main` with another title fails the workflow and publishes nothing.
+
+Every merge into `dev` publishes the `staging` image the same way.
 
 Versions follow [Semantic Versioning](https://semver.org/).
