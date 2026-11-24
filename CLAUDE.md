@@ -20,14 +20,24 @@ Self-hosted web service to track daily drawings made in Procreate on an iPad Pro
 | Images | `sharp` for thumbnails |
 | Container | One multi-stage Dockerfile + `docker-compose.yml`, one volume at `/data` |
 
-## Planned layout (npm workspaces)
+## Layout (npm workspaces)
 
 ```
-web/       Vue app (built to static files, served by the server)
-server/    Hono API + static file serving
+web/       Vue app (built to web/dist, served by the server)
+server/    Hono API + static file serving; app.ts = routes, index.ts = listen
 Dockerfile
+entrypoint.sh   container start: fixes /data ownership (PUID/PGID), drops root
 docker-compose.yml
 ```
+
+## Commands
+
+- `npm run dev:server` + `npm run dev:web` (two terminals) — Vite on :5173 proxies `/api` to :3000.
+  The server needs env vars, e.g. `APP_TOKEN=dev DATA_DIR=./data npm run dev:server`.
+- `npm run typecheck`, `npm test`, `npm run build`, `npm start` (serves the built app on :3000)
+- The server runs its `.ts` files directly with Node's type stripping: no build step, so use only
+  erasable TS syntax (no enums/namespaces) and import local files with the `.ts` extension.
+  Tests use `node:test` (`*.test.ts` next to the code).
 
 ## Key decisions
 
@@ -53,8 +63,12 @@ docker-compose.yml
 - `DATA_DIR` — default `/data`
 - `PORT` — default `3000`
 - `TZ` — timezone used to decide "same day"
+- `PUID` / `PGID` — Docker only, default `1000`: `entrypoint.sh` gives the data folder to this user and group,
+  then runs the server as them (same convention as linuxserver.io images)
 
 ## Conventions
 
+- Git workflow is in [CONTRIBUTING.md](CONTRIBUTING.md): branch off `dev`, open PRs into `dev`, never push to
+  `dev` or `main` directly. Only a release PR (`dev` → `main`) touches `main`.
 - Keep it small: no feature, option or dependency nobody asked for.
 - Never commit secrets or `.env`; `.env.example` documents variables.
